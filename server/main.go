@@ -37,6 +37,7 @@ func main() {
 	router.HandleFunc("/api/categories", postCategory).Methods("POST")
 	router.HandleFunc("/api/pdfs", getPdfs).Methods("GET")
 	router.HandleFunc("/api/pdfs", postPdf).Methods("POST")
+	router.HandleFunc("/api/pdfs/{id}", downloadPdf).Methods("GET")
 
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000"}, //React
@@ -164,6 +165,30 @@ func postPdf(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("File uploaded successfully"))
+}
+
+func downloadPdf(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var fileName string
+	err := db.QueryRow("SELECT name FROM pdfs WHERE id = ?", id).Scan(&fileName)
+	if err != nil {
+		http.Error(w, "PDF not found", http.StatusNotFound)
+		return
+	}
+
+	filePath := pdfBasePath + id + filepath.Ext(fileName)
+	file, err := os.Open(filePath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	w.Header().Set("Content-Type", "application/pdf")
+	io.Copy(w, file)
 }
 
 // start database

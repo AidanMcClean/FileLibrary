@@ -1,29 +1,54 @@
 .App {
   text-align: center;
-  padding: 20px;
 }
 
 .header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 20px;
-  background-color: #f8f9fa;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.link {
-  padding: 10px 20px;
-  background-color: #007bff;
+  justify-content: flex-end;
+  background-color: #282c34;
+  padding: 20px;
   color: white;
-  border-radius: 5px;
-  text-decoration: none;
 }
 
-.link:hover {
-  background-color: #0056b3;
+.header .link {
+  color: #61dafb;
+  text-decoration: none;
+  font-size: 1.2em;
 }
 
 .content {
   padding: 20px;
+}
+
+.categories-list {
+  text-align: left;
+}
+
+.category {
+  margin-bottom: 20px;
+}
+
+.category-title {
+  margin: 0;
+  padding: 5px 0;
+  font-size: 1.2em;
+  font-weight: bold;
+  text-decoration: underline;
+}
+
+.pdf-list {
+  list-style-type: none;
+  padding: 0;
+}
+
+.pdf-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.download-icon {
+  cursor: pointer;
+  color: #007bff;
 }
