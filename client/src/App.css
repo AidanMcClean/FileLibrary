@@ -1,0 +1,29 @@
+.App {
+  text-align: center;
+  padding: 20px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  background-color: #f8f9fa;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.link {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border-radius: 5px;
+  text-decoration: none;
+}
+
+.link:hover {
+  background-color: #0056b3;
+}
+
+.content {
+  padding: 20px;
+}
