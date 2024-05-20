@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Route, Routes, Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
 import UploadForm from './components/UploadForm';
+import RemovePDF from './components/RemovePDF';
 import axios from 'axios';
 import './App.css';
 
@@ -73,17 +74,24 @@ function Home() {
   );
 }
 
+
 function App() {
   return (
     <Router>
       <div className="App">
         <header className="header">
-          <span></span>
-          <Link to="/upload" className="link">Upload PDF</Link>
+          <div className="left">
+            <Link to="/" className="link">Home</Link>
+          </div>
+          <div className="right">
+            <Link to="/upload" className="link">Upload PDF</Link>
+            <Link to="/remove" className="link">Remove PDF</Link>
+          </div>
         </header>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/upload" element={<UploadForm />} />
+          <Route path="/remove" element={<RemovePDF />} />
         </Routes>
       </div>
     </Router>

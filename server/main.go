@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
@@ -38,6 +40,7 @@ func main() {
 	router.HandleFunc("/api/pdfs", getPdfs).Methods("GET")
 	router.HandleFunc("/api/pdfs", postPdf).Methods("POST")
 	router.HandleFunc("/api/pdfs/{id}", downloadPdf).Methods("GET")
+	router.HandleFunc("/api/remove-pdfs", removePdfs).Methods("POST")
 
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000"}, //React
@@ -53,7 +56,7 @@ func main() {
 func getCategories(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query("SELECT id, name FROM categories")
 	if err != nil {
-		http.Error(w, "Server error", http.StatusInternalServerError)
+		http.Error(w, "Server side error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -63,7 +66,7 @@ func getCategories(w http.ResponseWriter, r *http.Request) {
 		var id int
 		var name string
 		if err := rows.Scan(&id, &name); err != nil {
-			http.Error(w, "Server error", http.StatusInternalServerError)
+			http.Error(w, "Server side error", http.StatusInternalServerError)
 			return
 		}
 		categories = append(categories, map[string]interface{}{"id": id, "name": name})
@@ -76,19 +79,19 @@ func getCategories(w http.ResponseWriter, r *http.Request) {
 func postCategory(w http.ResponseWriter, r *http.Request) {
 	var category map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&category); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		http.Error(w, "Request Error", http.StatusBadRequest)
 		return
 	}
 
 	name, ok := category["name"].(string)
 	if !ok || name == "" {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		http.Error(w, "Request Error", http.StatusBadRequest)
 		return
 	}
 
 	_, err := db.Exec("INSERT INTO categories (name) VALUES (?)", name)
 	if err != nil {
-		http.Error(w, "Server error", http.StatusInternalServerError)
+		http.Error(w, "Server side error", http.StatusInternalServerError)
 		return
 	}
 
@@ -124,6 +127,10 @@ func getPdfs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(pdfs)
 }
 
+func cleanFileName(fileName string) string {
+	return url.PathEscape(fileName)
+}
+
 func postPdf(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(10 << 20)
 
@@ -134,12 +141,16 @@ func postPdf(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	tempFilePath := pdfBasePath + "temp_" + handler.Filename
+	displayName := cleanFileName(r.FormValue("display_name"))
+	categoryID := r.FormValue("category_id")
+
+	tempFilePath := filepath.Join(pdfBasePath, "temp_"+fmt.Sprintf("%v_%s", time.Now().UnixNano(), handler.Filename))
 	dst, err := os.Create(tempFilePath)
 	if err != nil {
 		http.Error(w, "Failed to create file", http.StatusInternalServerError)
 		return
 	}
+
 	_, err = io.Copy(dst, file)
 	dst.Close()
 	if err != nil {
@@ -148,15 +159,21 @@ func postPdf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO pdfs (name, category_id) VALUES (?, ?)", handler.Filename, r.FormValue("category_id"))
+	result, err := db.Exec("INSERT INTO pdfs (name, category_id) VALUES (?, ?)", displayName, categoryID)
 	if err != nil {
 		os.Remove(tempFilePath)
-		http.Error(w, "Failed to save file data", http.StatusInternalServerError)
+		http.Error(w, "Failed to save PDF data", http.StatusInternalServerError)
 		return
 	}
-	id, _ := result.LastInsertId()
 
-	newPath := pdfBasePath + fmt.Sprintf("%d", id) + filepath.Ext(handler.Filename)
+	id, err := result.LastInsertId()
+	if err != nil {
+		os.Remove(tempFilePath)
+		http.Error(w, "Failed to retrieve last insert ID", http.StatusInternalServerError)
+		return
+	}
+
+	newPath := filepath.Join(pdfBasePath, fmt.Sprintf("%d%s", id, filepath.Ext(handler.Filename)))
 	err = os.Rename(tempFilePath, newPath)
 	if err != nil {
 		http.Error(w, "Failed to rename file", http.StatusInternalServerError)
@@ -174,14 +191,15 @@ func downloadPdf(w http.ResponseWriter, r *http.Request) {
 	var fileName string
 	err := db.QueryRow("SELECT name FROM pdfs WHERE id = ?", id).Scan(&fileName)
 	if err != nil {
-		http.Error(w, "PDF not found", http.StatusNotFound)
+		http.Error(w, "PDF not found in database", http.StatusNotFound)
 		return
 	}
 
-	filePath := pdfBasePath + id + filepath.Ext(fileName)
+	filePath := filepath.Join(pdfBasePath, fmt.Sprintf("%s.pdf", id))
+
 	file, err := os.Open(filePath)
 	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+		http.Error(w, "File not found on server", http.StatusNotFound)
 		return
 	}
 	defer file.Close()
@@ -189,6 +207,34 @@ func downloadPdf(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
 	w.Header().Set("Content-Type", "application/pdf")
 	io.Copy(w, file)
+}
+
+func removePdfs(w http.ResponseWriter, r *http.Request) {
+	var requestData struct {
+		PdfIds []int `json:"pdfIds"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	for _, id := range requestData.PdfIds {
+		filePath := filepath.Join(pdfBasePath, fmt.Sprintf("%d.pdf", id))
+
+		if err := os.Remove(filePath); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete file: %s", filePath), http.StatusInternalServerError)
+			continue
+		}
+
+		_, err := db.Exec("DELETE FROM pdfs WHERE id = ?", id)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete PDF record with ID %d from database", id), http.StatusInternalServerError)
+			continue
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // start database

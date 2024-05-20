@@ -1,0 +1,32 @@
+.remove-pdf-container {
+    padding: 20px;
+  }
+  
+  .filter-container {
+    margin-bottom: 20px;
+  }
+  
+  .pdf-list {
+    list-style-type: none;
+    padding: 0;
+  }
+  
+  .pdf-item {
+    display: flex;
+    align-items: center;
+    padding: 5px 0;
+  }
+  
+  .remove-button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    background-color: #ff0000;
+    color: #ffffff;
+    border: none;
+    cursor: pointer;
+  }
+  
+  .remove-button:hover {
+    background-color: #cc0000;
+  }
+  

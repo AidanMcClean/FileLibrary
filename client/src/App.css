@@ -4,16 +4,36 @@
 
 .header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center; /* Align items vertically in the center */
   background-color: #282c34;
   padding: 20px;
   color: white;
+}
+
+.header .left,
+.header .right {
+  display: flex;
+  align-items: center;
+}
+
+.header .left {
+  justify-content: flex-start; /* Align left items to the start */
+}
+
+.header .right {
+  justify-content: flex-end; /* Align right items to the end */
 }
 
 .header .link {
   color: #61dafb;
   text-decoration: none;
   font-size: 1.2em;
+  margin-left: 20px; /* Add margin to the left of right-aligned links */
+}
+
+.header .link:first-child {
+  margin-left: 0; /* Remove margin from the first link on the right */
 }
 
 .content {
@@ -51,4 +71,36 @@
 .download-icon {
   cursor: pointer;
   color: #007bff;
+}
+
+.remove-pdf-container {
+  padding: 20px;
+}
+
+.filter-container {
+  margin-bottom: 20px;
+}
+
+.pdf-list {
+  list-style-type: none;
+  padding: 0;
+}
+
+.pdf-item {
+  display: flex;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.remove-button {
+  margin-top: 20px;
+  padding: 10px 20px;
+  background-color: #ff0000;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+}
+
+.remove-button:hover {
+  background-color: #cc0000;
 }
