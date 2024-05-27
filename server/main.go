@@ -1,55 +1,86 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	_ "github.com/denisenkom/go-mssqldb"
 	"github.com/gorilla/mux"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/cors"
 )
 
 var db *sql.DB
 
-const pdfBasePath = "./PDFlist/"
-
 func main() {
-	var err error
+	//var err error
+	/*
+		err := godotenv.Load()
+		if err != nil {
+			log.Fatalf("Error loading .env file")
+		}
+	*/
+	log.Println("starting application")
+	print("reached print in main\n")
 
-	if _, err := os.Stat(pdfBasePath); os.IsNotExist(err) {
-		os.Mkdir(pdfBasePath, 0755)
-	}
-
-	db, err = initDB()
-	if err != nil {
-		log.Fatal(err)
-	}
+	db = initDB()
 	defer db.Close()
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "80"
+	}
+
+	log.Printf("Using port: %s\n", port)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/api/categories", getCategories).Methods("GET")
 	router.HandleFunc("/api/categories", postCategory).Methods("POST")
 	router.HandleFunc("/api/pdfs", getPdfs).Methods("GET")
-	router.HandleFunc("/api/pdfs", postPdf).Methods("POST")
 	router.HandleFunc("/api/pdfs/{id}", downloadPdf).Methods("GET")
 	router.HandleFunc("/api/remove-pdfs", removePdfs).Methods("POST")
 
+	router.Handle("/api/pdfs", apiKeyMiddleware(http.HandlerFunc(postPdf))).Methods("POST")
+
+	router.HandleFunc("/api/test", testEndpoint).Methods("GET")
+
+	log.Println("Past the routing")
+
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000"}, //React
+		AllowedOrigins:   []string{"*"}, // Allow all origins
 		AllowCredentials: true,
+		AllowedHeaders:   []string{"Content-Type", "Origin", "Accept", "*"},
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
 		Debug:            true,
 	})
 
 	handler := corsHandler.Handler(router)
-	log.Fatal(http.ListenAndServe(":8080", handler))
+
+	log.Fatal(http.ListenAndServe(":"+port, handler))
+}
+
+func testEndpoint(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Hello, world 3!"))
+}
+
+func getBlobServiceClient() *azblob.Client {
+	connectionString, ok := os.LookupEnv("AZURE_STORAGEBLOB_CONNECTIONSTRING")
+	if !ok {
+		log.Fatal("the environment variable 'AZURE_STORAGE_CONNECTION_STRING' could not be found")
+	}
+
+	serviceClient, err := azblob.NewClientFromConnectionString(connectionString, nil)
+	handleError(err)
+	return serviceClient
 }
 
 // category handlers
@@ -75,34 +106,41 @@ func getCategories(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(categories)
 }
-
 func postCategory(w http.ResponseWriter, r *http.Request) {
+	log.Println("Received POST request to add category")
+
 	var category map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&category); err != nil {
-		http.Error(w, "Request Error", http.StatusBadRequest)
+		log.Printf("Error decoding JSON: %v", err)
+		http.Error(w, "Request Error: unable to decode JSON", http.StatusBadRequest)
 		return
 	}
 
 	name, ok := category["name"].(string)
 	if !ok || name == "" {
-		http.Error(w, "Request Error", http.StatusBadRequest)
+		log.Println("Invalid or missing category name")
+		http.Error(w, "Request Error: invalid category name", http.StatusBadRequest)
 		return
 	}
 
-	_, err := db.Exec("INSERT INTO categories (name) VALUES (?)", name)
+	query := "INSERT INTO categories (name) VALUES (@name)"
+	_, err := db.Exec(query, sql.Named("name", name))
 	if err != nil {
-		http.Error(w, "Server side error", http.StatusInternalServerError)
+		log.Printf("Error inserting category into database: %v", err)
+		http.Error(w, "Server Error: failed to insert category", http.StatusInternalServerError)
 		return
 	}
 
+	log.Println("Category inserted successfully")
 	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte("Category created successfully"))
 }
 
 // pdf handlers
 func getPdfs(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query("SELECT id, name, category_id FROM pdfs")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to retrieve records: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -112,8 +150,9 @@ func getPdfs(w http.ResponseWriter, r *http.Request) {
 		var id int
 		var name string
 		var category_id int
-		if err := rows.Scan(&id, &name, &category_id); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		err := rows.Scan(&id, &name, &category_id)
+		if err != nil {
+			http.Error(w, "Failed to read record: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		pdfs = append(pdfs, map[string]interface{}{
@@ -127,86 +166,112 @@ func getPdfs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(pdfs)
 }
 
-func cleanFileName(fileName string) string {
-	return url.PathEscape(fileName)
-}
-
 func postPdf(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(10 << 20)
+	client := getBlobServiceClient()
 
-	file, handler, err := r.FormFile("pdf")
+	err := r.ParseMultipartForm(20 << 20) // limit to 20 MB
 	if err != nil {
+		log.Printf("Error parsing multipart form: %v", err)
+		http.Error(w, "Error parsing multipart form", http.StatusBadRequest)
+		return
+	}
+
+	file, _, err := r.FormFile("pdf")
+	if err != nil {
+		log.Printf("Error retrieving the file from the form: %v", err)
 		http.Error(w, "Invalid file upload", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	displayName := cleanFileName(r.FormValue("display_name"))
+	displayName := r.FormValue("display_name")
+	if displayName == "" {
+		http.Error(w, "Display name must be provided", http.StatusBadRequest)
+		return
+	}
+
+	displayName = ensurePDFExtension(displayName)
+
 	categoryID := r.FormValue("category_id")
 
-	tempFilePath := filepath.Join(pdfBasePath, "temp_"+fmt.Sprintf("%v_%s", time.Now().UnixNano(), handler.Filename))
-	dst, err := os.Create(tempFilePath)
+	query := "INSERT INTO pdfs (name, category_id) OUTPUT INSERTED.id VALUES (@name, @category_id)"
+	var newID int
+	err = db.QueryRow(query, sql.Named("name", displayName), sql.Named("category_id", categoryID)).Scan(&newID)
 	if err != nil {
-		http.Error(w, "Failed to create file", http.StatusInternalServerError)
+		log.Printf("Error inserting PDF record into database: %v", err)
+		http.Error(w, "Failed to insert PDF record", http.StatusInternalServerError)
 		return
 	}
 
-	_, err = io.Copy(dst, file)
-	dst.Close()
-	if err != nil {
-		os.Remove(tempFilePath)
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+	blobName := fmt.Sprintf("%d.pdf", newID)
+
+	containerName := os.Getenv("AZURE_STORAGE_CONTAINER_NAME")
+	if containerName == "" {
+		http.Error(w, "AZURE_STORAGE_CONTAINER_NAME is not set", http.StatusInternalServerError)
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO pdfs (name, category_id) VALUES (?, ?)", displayName, categoryID)
+	_, err = client.UploadStream(context.TODO(), containerName, blobName, file, nil)
 	if err != nil {
-		os.Remove(tempFilePath)
-		http.Error(w, "Failed to save PDF data", http.StatusInternalServerError)
-		return
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		os.Remove(tempFilePath)
-		http.Error(w, "Failed to retrieve last insert ID", http.StatusInternalServerError)
-		return
-	}
-
-	newPath := filepath.Join(pdfBasePath, fmt.Sprintf("%d%s", id, filepath.Ext(handler.Filename)))
-	err = os.Rename(tempFilePath, newPath)
-	if err != nil {
-		http.Error(w, "Failed to rename file", http.StatusInternalServerError)
+		log.Printf("Failed to upload blob: %v", err)
+		http.Error(w, "Failed to upload PDF", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("File uploaded successfully"))
+	w.Write([]byte(fmt.Sprintf("PDF uploaded and recorded successfully with ID: %d", newID)))
+}
+
+func ensurePDFExtension(fileName string) string {
+	if !strings.HasSuffix(strings.ToLower(fileName), ".pdf") {
+		fileName += ".pdf"
+	}
+	return fileName
 }
 
 func downloadPdf(w http.ResponseWriter, r *http.Request) {
+	client := getBlobServiceClient()
+
 	vars := mux.Vars(r)
 	id := vars["id"]
-
-	var fileName string
-	err := db.QueryRow("SELECT name FROM pdfs WHERE id = ?", id).Scan(&fileName)
-	if err != nil {
-		http.Error(w, "PDF not found in database", http.StatusNotFound)
+	if id == "" {
+		http.Error(w, "ID parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	filePath := filepath.Join(pdfBasePath, fmt.Sprintf("%s.pdf", id))
-
-	file, err := os.Open(filePath)
-	if err != nil {
-		http.Error(w, "File not found on server", http.StatusNotFound)
+	var name string
+	row := db.QueryRow("SELECT name FROM pdfs WHERE id = @id", sql.Named("id", id))
+	if err := row.Scan(&name); err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "No PDF found with the given ID", http.StatusNotFound)
+		} else {
+			http.Error(w, "Database query failed: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
-	defer file.Close()
 
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	containerName := os.Getenv("AZURE_STORAGE_CONTAINER_NAME")
+	if containerName == "" {
+		http.Error(w, "AZURE_STORAGE_CONTAINER_NAME is not set", http.StatusInternalServerError)
+		return
+	}
+
+	blobName := id + ".pdf"
+
+	blobDownloadResponse, err := client.DownloadStream(context.Background(), containerName, blobName, nil)
+	if err != nil {
+		log.Printf("Failed to download blob: %v", err)
+		http.Error(w, "Failed to download PDF", http.StatusInternalServerError)
+		return
+	}
+	defer blobDownloadResponse.Body.Close()
+
 	w.Header().Set("Content-Type", "application/pdf")
-	io.Copy(w, file)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name+".pdf"))
+	if _, err := io.Copy(w, blobDownloadResponse.Body); err != nil {
+		log.Printf("Failed to send PDF: %v", err)
+		http.Error(w, "Failed to send PDF", http.StatusInternalServerError)
+	}
 }
 
 func removePdfs(w http.ResponseWriter, r *http.Request) {
@@ -219,62 +284,73 @@ func removePdfs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, id := range requestData.PdfIds {
-		filePath := filepath.Join(pdfBasePath, fmt.Sprintf("%d.pdf", id))
+	client := getBlobServiceClient()
+	containerName := os.Getenv("AZURE_STORAGE_CONTAINER_NAME")
+	if containerName == "" {
+		http.Error(w, "AZURE_STORAGE_CONTAINER_NAME is not set", http.StatusInternalServerError)
+		return
+	}
 
-		if err := os.Remove(filePath); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to delete file: %s", filePath), http.StatusInternalServerError)
+	for _, id := range requestData.PdfIds {
+		blobName := fmt.Sprintf("%d.pdf", id)
+
+		_, err := client.DeleteBlob(context.Background(), containerName, blobName, nil)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete blob with ID %d: %v", id, err), http.StatusInternalServerError)
 			continue
 		}
 
-		_, err := db.Exec("DELETE FROM pdfs WHERE id = ?", id)
+		query := "DELETE FROM pdfs WHERE id = @id"
+		_, err = db.Exec(query, sql.Named("id", id))
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to delete PDF record with ID %d from database", id), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("Failed to delete PDF record with ID %d from database: %v", id, err), http.StatusInternalServerError)
 			continue
 		}
 	}
 
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("PDFs successfully deleted"))
 }
 
 // start database
-func initDB() (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "./library.db")
-	if err != nil {
-		return nil, err
+func initDB() *sql.DB {
+	connString := os.Getenv("AZURE_SQL_CONNECTIONSTRING")
+	if connString == "" {
+		log.Fatal("Environment variable AZURE_SQL_CONNECTIONSTRING is not set.")
 	}
 
-	err = db.Ping()
+	db, err := sql.Open("sqlserver", connString)
 	if err != nil {
-		return nil, err
+		log.Fatalf("Error creating connection pool: %v", err)
 	}
 
-	initializeTables(db)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	return db, nil
+	err = db.PingContext(ctx)
+	if err != nil {
+		log.Fatalf("Unable to connect to database: %v", err)
+	}
+
+	log.Println("Connected to Azure SQL Database successfully.")
+	return db
 }
 
-// initialize database
-func initializeTables(db *sql.DB) {
-	createCategoriesTable := `
-    CREATE TABLE IF NOT EXISTS categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL
-    );`
-	_, err := db.Exec(createCategoriesTable)
-	if err != nil {
-		log.Fatalf("Failed to create categories table: %v", err)
-	}
+// check azure API key
+func apiKeyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKey := r.Header.Get("x-api-key")
+		expectedApiKey := os.Getenv("API_KEY")
+		if apiKey != expectedApiKey {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
-	createPDFsTable := `
-    CREATE TABLE IF NOT EXISTS pdfs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        category_id INTEGER,
-        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET DEFAULT
-    );`
-	_, err = db.Exec(createPDFsTable)
+func handleError(err error) {
 	if err != nil {
-		log.Fatalf("Failed to create pdfs table: %v", err)
+		log.Fatal(err.Error())
 	}
 }

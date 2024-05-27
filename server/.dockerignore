@@ -1,0 +1,7 @@
+library.db
+PDFlist/
+
+.git/
+Dockerfile
+
+*.env
