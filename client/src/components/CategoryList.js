@@ -9,8 +9,8 @@ function CategoryList() {
         // fetch categories
         const fetchCategories = async () => {
             try {
-                const categoryResponse = await axios.get('http://localhost:8080/api/categories');
-                const pdfResponse = await axios.get('http://localhost:8080/api/pdfs');
+                const categoryResponse = await axios.get('https://aidanlibrarymanagementapp.azurewebsites.net/api/categories');
+                const pdfResponse = await axios.get('https://aidanlibrarymanagementapp.azurewebsites.net/api/pdfs');
 
                 const pdfData = pdfResponse.data;
                 const categoriesWithData = categoryResponse.data.filter(category => 

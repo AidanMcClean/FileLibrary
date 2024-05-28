@@ -15,7 +15,7 @@ function RemovePDF() {
 
   const fetchCategories = async () => {
     try {
-      const response = await axios.get('http://localhost:8080/api/categories');
+      const response = await axios.get('https://aidanlibrarymanagementapp.azurewebsites.net/api/categories');
       setCategories(response.data);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -24,7 +24,7 @@ function RemovePDF() {
 
   const fetchPdfs = async () => {
     try {
-      const response = await axios.get('http://localhost:8080/api/pdfs');
+      const response = await axios.get('https://aidanlibrarymanagementapp.azurewebsites.net/api/pdfs');
       setPdfs(response.data);
     } catch (error) {
       console.error('Error fetching PDFs:', error);
@@ -45,7 +45,7 @@ function RemovePDF() {
 
   const handleRemovePdfs = async () => {
     try {
-      await axios.post('http://localhost:8080/api/remove-pdfs', {
+      await axios.post('https://aidanlibrarymanagementapp.azurewebsites.net/api/remove-pdfs', {
         pdfIds: selectedPdfs,
       });
       fetchPdfs();
@@ -78,7 +78,7 @@ function RemovePDF() {
         </select>
       </div>
       <ul className="pdf-list">
-        {filteredPdfs.map((pdf) => (
+        {filteredPdfs && filteredPdfs.map((pdf) => (
           <li key={pdf.id} className="pdf-item">
             <input
               type="checkbox"

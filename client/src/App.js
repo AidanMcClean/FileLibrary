@@ -14,7 +14,7 @@ function Home() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await axios.get('http://localhost:8080/api/categories');
+        const response = await axios.get('https://aidanlibrarymanagementapp.azurewebsites.net/api/categories');
         setCategories(response.data);
       } catch (error) {
         console.error('Error fetching categories:', error);
@@ -23,7 +23,7 @@ function Home() {
 
     const fetchPdfs = async () => {
       try {
-        const response = await axios.get('http://localhost:8080/api/pdfs');
+        const response = await axios.get('https://aidanlibrarymanagementapp.azurewebsites.net/api/pdfs');
         setPdfs(response.data);
       } catch (error) {
         console.error('Error fetching PDFs:', error);
@@ -35,11 +35,12 @@ function Home() {
   }, []);
 
   const getPdfsByCategory = (categoryId) => {
+    if (!pdfs) return [];
     return pdfs.filter(pdf => pdf.category_id === categoryId);
   };
 
   const handleDownload = (pdfId) => {
-    const url = `http://localhost:8080/api/pdfs/${pdfId}`;
+    const url = `https://aidanlibrarymanagementapp.azurewebsites.net/api/pdfs/${pdfId}`;
     window.location.href = url;
   };
 
@@ -73,7 +74,6 @@ function Home() {
     </div>
   );
 }
-
 
 function App() {
   return (

@@ -13,7 +13,7 @@ function UploadForm() {
     useEffect(() => {
         const fetchCategories = async () => {
             try {
-                const response = await axios.get('http://localhost:8080/api/categories');
+                const response = await axios.get('https://aidanlibrarymanagementapp.azurewebsites.net/api/categories');
                 setCategories(response.data);
             } catch (error) {
                 console.error('Error fetching categories:', error);
@@ -48,9 +48,10 @@ function UploadForm() {
         formData.append('category_id', selectedCategory);
 
         try {
-            const response = await axios.post('http://localhost:8080/api/pdfs', formData, {
+            const response = await axios.post('https://aidanlibrarymanagementapp.azurewebsites.net/api/pdfs', formData, {
                 headers: {
-                    'Content-Type': 'multipart/form-data'
+                    'Content-Type': 'multipart/form-data',
+                    'x-api-key': process.env.REACT_APP_API_KEY
                 }
             });
             console.log('File uploaded', response.data);

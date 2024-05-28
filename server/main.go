@@ -267,7 +267,7 @@ func downloadPdf(w http.ResponseWriter, r *http.Request) {
 	defer blobDownloadResponse.Body.Close()
 
 	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name+".pdf"))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
 	if _, err := io.Copy(w, blobDownloadResponse.Body); err != nil {
 		log.Printf("Failed to send PDF: %v", err)
 		http.Error(w, "Failed to send PDF", http.StatusInternalServerError)
