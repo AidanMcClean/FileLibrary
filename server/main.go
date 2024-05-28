@@ -46,8 +46,7 @@ func main() {
 	router.HandleFunc("/api/categories", postCategory).Methods("POST")
 	router.HandleFunc("/api/pdfs", getPdfs).Methods("GET")
 	router.HandleFunc("/api/pdfs/{id}", downloadPdf).Methods("GET")
-	router.HandleFunc("/api/remove-pdfs", removePdfs).Methods("POST")
-
+	router.Handle("/api/remove-pdfs", apiKeyMiddleware(http.HandlerFunc(removePdfs))).Methods("POST")
 	router.Handle("/api/pdfs", apiKeyMiddleware(http.HandlerFunc(postPdf))).Methods("POST")
 
 	router.HandleFunc("/api/test", testEndpoint).Methods("GET")

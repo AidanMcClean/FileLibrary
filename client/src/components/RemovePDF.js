@@ -7,6 +7,7 @@ function RemovePDF() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [pdfs, setPdfs] = useState([]);
   const [selectedPdfs, setSelectedPdfs] = useState([]);
+  const [apiKey, setApiKey] = useState('');
 
   useEffect(() => {
     fetchCategories();
@@ -47,6 +48,10 @@ function RemovePDF() {
     try {
       await axios.post('https://aidanlibrarymanagementapp.azurewebsites.net/api/remove-pdfs', {
         pdfIds: selectedPdfs,
+      }, {
+        headers: {
+          'x-api-key': apiKey
+        }
       });
       fetchPdfs();
       setSelectedPdfs([]);
@@ -76,6 +81,17 @@ function RemovePDF() {
             </option>
           ))}
         </select>
+      </div>
+      <div className="api-key-container">
+        <label htmlFor="api-key">API Key:</label>
+        <input
+          type="password"
+          id="api-key"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="Enter API Key"
+          className="input-field"
+        />
       </div>
       <ul className="pdf-list">
         {filteredPdfs && filteredPdfs.map((pdf) => (
