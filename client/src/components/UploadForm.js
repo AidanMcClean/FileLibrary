@@ -9,6 +9,7 @@ function UploadForm() {
     const [categories, setCategories] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState('');
     const [selectedFile, setSelectedFile] = useState(null);
+    const [apiKey, setApiKey] = useState('');
 
     useEffect(() => {
         const fetchCategories = async () => {
@@ -35,10 +36,19 @@ function UploadForm() {
         setSelectedCategory(event.target.value);
     };
 
+    const handleApiKeyChange = (event) => {
+        setApiKey(event.target.value);
+    };
+
     const handleSubmit = async (event) => {
         event.preventDefault();
         if (!selectedFile) {
             alert("Please select a file to upload.");
+            return;
+        }
+
+        if (!apiKey) {
+            alert("Please enter the API key.");
             return;
         }
 
@@ -51,7 +61,7 @@ function UploadForm() {
             const response = await axios.post('https://aidanlibrarymanagementapp.azurewebsites.net/api/pdfs', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
-                    'x-api-key': process.env.REACT_APP_API_KEY
+                    'x-api-key': apiKey
                 }
             });
             console.log('File uploaded', response.data);
@@ -71,6 +81,7 @@ function UploadForm() {
                     <option key={category.id} value={category.id}>{category.name}</option>
                 ))}
             </select>
+            <input type="password" value={apiKey} onChange={handleApiKeyChange} placeholder="Enter API key" className={styles.inputField} />
             <button type="submit" className={styles.button}>Upload PDF</button>
         </form>
     );
